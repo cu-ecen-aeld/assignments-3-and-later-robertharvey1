@@ -1,4 +1,11 @@
 #include "systemcalls.h"
+#include <stdlib.h>
+#include <stdarg.h>
+#include <stdio.h>
+#include <sys/types.h>
+#include <sys/wait.h>
+#include <fcntl.h>
+#include <unistd.h>
 
 /**
  * @param cmd the command to execute with system()
@@ -9,14 +16,16 @@
 */
 bool do_system(const char *cmd)
 {
-
 /*
  * TODO  add your code here
  *  Call the system() function with the command set in the cmd
  *   and return a boolean true if the system() call completed with success
  *   or false() if it returned a failure
 */
-
+    if(system(cmd) == -1)
+    {
+        return false;
+    }
     return true;
 }
 
@@ -40,6 +49,10 @@ bool do_exec(int count, ...)
     va_start(args, count);
     char * command[count+1];
     int i;
+
+    int status;
+    bool retunVal = true;
+
     for(i=0; i<count; i++)
     {
         command[i] = va_arg(args, char *);
@@ -49,6 +62,7 @@ bool do_exec(int count, ...)
     // and may be removed
     command[count] = command[count];
 
+    va_end(args);
 /*
  * TODO:
  *   Execute a system command by calling fork, execv(),
@@ -59,9 +73,36 @@ bool do_exec(int count, ...)
  *
 */
 
-    va_end(args);
+    pid_t pid = fork();
+    if (pid < 0) 
+    {
+        perror("Failed to create fork");
+        retunVal = false;
+    } 
+    else if (pid == 0) 
+    {
+        // Fork created do execute command
+        execv(command[0], command);
 
-    return true;
+        //Should never been seen
+        perror("Failed to excecute command - execv");
+        exit(EXIT_FAILURE);
+    }
+
+    //wait for child to complete/terminate
+    if (wait(&status) < 0) 
+    {
+        perror("Failed waiting on child termination");
+        retunVal = false;
+    }
+
+    //did child fail?
+   if ((retunVal && WIFEXITED(status) && WEXITSTATUS(status) != 0))
+   {
+       retunVal = false;
+    }
+
+    return retunVal;
 }
 
 /**
@@ -75,6 +116,10 @@ bool do_exec_redirect(const char *outputfile, int count, ...)
     va_start(args, count);
     char * command[count+1];
     int i;
+
+    int status;
+    bool retunVal = true;
+
     for(i=0; i<count; i++)
     {
         command[i] = va_arg(args, char *);
@@ -83,7 +128,7 @@ bool do_exec_redirect(const char *outputfile, int count, ...)
     // this line is to avoid a compile warning before your implementation is complete
     // and may be removed
     command[count] = command[count];
-
+    va_end(args);
 
 /*
  * TODO
@@ -93,7 +138,46 @@ bool do_exec_redirect(const char *outputfile, int count, ...)
  *
 */
 
-    va_end(args);
+    //redirect standard out to a file specified by outputfile.
+    int fd = open(outputfile, O_WRONLY|O_TRUNC|O_CREAT, 0644);
+    if (fd < 0) 
+    { 
+        perror("Open file fail"); 
+        abort(); 
+    }
 
-    return true;
+    pid_t pid = fork ();
+    if (pid < 0) 
+    {
+        perror("Failed to create fork");
+        retunVal = false;
+    } 
+    else if (pid == 0) 
+    {
+        if (dup2(fd, 1) < 0) 
+        { 
+            perror("dup2"); 
+            abort(); 
+        }
+
+       // close(fd);
+        execv (command[0], command);
+        //this part should not be reached
+        perror("Failed to excecute command - execv");
+        exit(EXIT_FAILURE);
+    }
+
+    //wait for child to complete/terminate
+    if (wait(&status) < 0) {
+        perror("Failed waiting on child termination");
+        retunVal = false;
+    }
+
+    if (retunVal && (WIFEXITED(status) && WEXITSTATUS(status) != 0))
+    {
+        retunVal = false;
+    }
+
+    close(fd);
+    return retunVal;
 }
